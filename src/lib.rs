@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+pub mod dfs;
 pub mod hdfs_shim;
 
 #[cfg(test)]
