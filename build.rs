@@ -15,23 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use cmake::Config;
-
 fn main() {
-
-    let dst = Config::new("libhdfs3").build();
-
-    println!("cargo:rustc-link-search=native={}", dst.display());
     println!("cargo:rustc-link-lib=dylib=hdfs3");
 
     // It's necessary to use an absolute path here because the
     // C++ codegen and the macro codegen appears to be run from different
     // working directories.
-    let path = std::path::PathBuf::from("libhdfs3/src");
-    let path2 = std::path::PathBuf::from("src");
+    let path = std::path::PathBuf::from("src");
+    let path2 = std::path::PathBuf::from("src/adapter.h");
     let mut b = autocxx_build::build("src/hdfs_shim.rs", &[&path, &path2], &[]).unwrap();
     b.flag_if_supported("-std=c++14")
         .compile("hdfs-native");
     println!("cargo:rerun-if-changed=src/hdfs_shim.rs");
-    println!("cargo:rerun-if-changed=libhdfs3/src/client/Hdfs.cpp");
 }
