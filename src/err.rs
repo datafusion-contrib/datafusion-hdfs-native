@@ -15,16 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-fn main() {
-    println!("cargo:rustc-link-lib=dylib=hdfs3");
+use thiserror::Error;
 
-    // It's necessary to use an absolute path here because the
-    // C++ codegen and the macro codegen appears to be run from different
-    // working directories.
-    let path = std::path::PathBuf::from("src");
-    let path2 = std::path::PathBuf::from("src/adapter.h");
-    let mut b = autocxx_build::build("src/hdfs_shim.rs", &[&path, &path2], &[]).unwrap();
-    b.flag_if_supported("-std=c++14")
-        .compile("hdfs-native");
-    println!("cargo:rerun-if-changed=src/hdfs_shim.rs");
+/// Errors which can occur during accessing Hdfs cluster
+#[derive(Error, Debug)]
+pub enum HdfsErr {
+    #[error("Unknown hdfs error")]
+    Unknown,
+    /// file path
+    #[error("File not found `{0}`")]
+    FileNotFound(String),
+    /// file path           
+    #[error("File already exists `{0}`")]
+    FileAlreadyExists(String),
+    /// namenode address
+    #[error("Cannot connect to NameNode `{0}`")]
+    CannotConnectToNameNode(String),
+    /// URL
+    #[error("Invalid URL `{0}`")]
+    InvalidUrl(String),
 }

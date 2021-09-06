@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+//! A rust wrapper over libhdfs3
+
+/// Rust APIs wrapping libhdfs3 API, providing better semantic and abstraction
 pub mod dfs;
-pub mod hdfs_shim;
+pub mod err;
+/// libhdfs3 native binding APIs
+pub mod native;
+pub mod util;
 
-#[cfg(test)]
-mod tests {
-    use crate::hdfs_shim::test_connect;
-
-    #[test]
-    fn it_works() {
-        test_connect();
-    }
-}
+pub use crate::dfs::*;
+pub use crate::err::HdfsErr;
+pub use crate::util::HdfsUtil;

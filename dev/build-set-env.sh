@@ -1,3 +1,5 @@
+#!/bin/bash
+
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -15,16 +17,4 @@
 # specific language governing permissions and limitations
 # under the License.
 
-[package]
-name = "hdfs-native"
-version = "0.1.0"
-edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
-libc = "0.2"
-log = "0.4"
-url = "2"
-thiserror = "1"
-const-cstr = "0.3.0"
+export HN_VERSION=$(awk -F'[ ="]+' '$1 == "version" { print $2 }' Cargo.toml)

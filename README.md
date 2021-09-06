@@ -21,7 +21,9 @@
 
 > A rust wrapper over libhdfs3 developed by Apache HAWQ
 
-### TODOs:
-- [ ] Read path
-- [ ] Write path
-- [ ] Move included libhdfs3 project to a git submodule
+## Setup
+
+
+## Configuration
+
+
