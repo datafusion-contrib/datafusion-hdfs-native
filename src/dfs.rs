@@ -15,17 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::mem;
-use std::rc::Rc;
 use std::slice;
 use std::string::String;
-use std::sync::Mutex;
+use std::sync::Arc;
 
 use libc::{c_char, c_int, c_short, c_void, time_t};
-use log::info;
-use url::Url;
 
 use crate::err::HdfsErr;
 use crate::native::*;
@@ -161,7 +157,7 @@ impl HdfsFileInfoPtr {
 
 /// Interface that represents the client side information for a file or directory.
 pub struct FileStatus<'a> {
-    raw: Rc<HdfsFileInfoPtr>,
+    raw: Arc<HdfsFileInfoPtr>,
     idx: u32,
     _marker: PhantomData<&'a ()>,
 }
@@ -171,7 +167,7 @@ impl<'a> FileStatus<'a> {
     /// create FileStatus from *const hdfsFileInfo
     fn new(ptr: *const hdfsFileInfo) -> FileStatus<'a> {
         FileStatus {
-            raw: Rc::new(HdfsFileInfoPtr::new(ptr)),
+            raw: Arc::new(HdfsFileInfoPtr::new(ptr)),
             idx: 0,
             _marker: PhantomData,
         }
@@ -180,7 +176,7 @@ impl<'a> FileStatus<'a> {
     /// create FileStatus from *const hdfsFileInfo which points
     /// to dynamically allocated array.
     #[inline]
-    fn from_array(raw: Rc<HdfsFileInfoPtr>, idx: u32) -> FileStatus<'a> {
+    fn from_array(raw: Arc<HdfsFileInfoPtr>, idx: u32) -> FileStatus<'a> {
         FileStatus {
             raw,
             idx,
@@ -272,7 +268,7 @@ impl<'a> FileStatus<'a> {
 /// It is basically thread safe because the native API for hdfsFs is thread-safe.
 #[derive(Clone)]
 pub struct HdfsFs<'a> {
-    url: String,
+    pub url: String,
     raw: *const hdfsFS,
     _marker: PhantomData<&'a ()>,
 }
@@ -280,7 +276,7 @@ pub struct HdfsFs<'a> {
 impl<'a> HdfsFs<'a> {
     /// create HdfsFs instance. Please use HdfsFsCache rather than using this API directly.
     #[inline]
-    fn new(url: String, raw: *const hdfsFS) -> HdfsFs<'a> {
+    pub(crate) fn new(url: String, raw: *const hdfsFS) -> HdfsFs<'a> {
         HdfsFs {
             url,
             raw,
@@ -517,7 +513,7 @@ impl<'a> HdfsFs<'a> {
             return Err(HdfsErr::Unknown);
         }
 
-        let shared_ptr = Rc::new(HdfsFileInfoPtr::new_array(ptr, entry_num));
+        let shared_ptr = Arc::new(HdfsFileInfoPtr::new_array(ptr, entry_num));
 
         let mut list = Vec::new();
         for idx in 0..entry_num {
@@ -681,172 +677,5 @@ impl<'a> HdfsFile<'a> {
         } else {
             Err(HdfsErr::Unknown)
         }
-    }
-}
-
-static LOCAL_FS_SCHEME: &str = "file";
-
-/// HdfsFsCache which caches HdfsFs instances.  
-///
-/// The original libhdfs allows only one HdfsFs instance for the same namenode. In otherwords,
-/// Some APIs of libhdfs are not thread-safe. So, You must get HdfsFs instance through HdfsFsCache,
-/// caching initialized HdfsFs instances and returning them.  
-pub struct HdfsFsCache<'a> {
-    fs_map: Mutex<HashMap<String, HdfsFs<'a>>>,
-}
-
-impl<'a> Default for HdfsFsCache<'a> {
-    fn default() -> Self {
-        HdfsFsCache::new()
-    }
-}
-
-struct HostPort {
-    host: String,
-    port: u16,
-}
-
-enum NNScheme {
-    Local,
-    Remote(HostPort),
-}
-
-impl ToString for NNScheme {
-    fn to_string(&self) -> String {
-        match self {
-            NNScheme::Local => "file:///".to_string(),
-            NNScheme::Remote(hp) => format!("{}:{}", hp.host, hp.port),
-        }
-    }
-}
-
-impl<'a> HdfsFsCache<'a> {
-    pub fn new() -> HdfsFsCache<'a> {
-        HdfsFsCache {
-            fs_map: Mutex::new(HashMap::new()),
-        }
-    }
-
-    fn get_namenode(&self, path: &str) -> Result<NNScheme, HdfsErr> {
-        match Url::parse(path) {
-            Ok(url) => {
-                if url.scheme() == LOCAL_FS_SCHEME {
-                    Ok(NNScheme::Local)
-                } else if url.host().is_some() && url.port().is_some() {
-                    Ok(NNScheme::Remote(HostPort {
-                        host: format!("{}://{}", &url.scheme(), url.host().unwrap()),
-                        port: url.port().unwrap(),
-                    }))
-                } else {
-                    Err(HdfsErr::InvalidUrl(path.to_string()))
-                }
-            }
-            Err(_) => Err(HdfsErr::InvalidUrl(path.to_string())),
-        }
-    }
-
-    pub fn get(&mut self, path: &str) -> Result<HdfsFs<'a>, HdfsErr> {
-        let host_port = self.get_namenode(path)?;
-
-        let mut map = self.fs_map.lock().unwrap();
-
-        let entry: &mut HdfsFs = map.entry(host_port.to_string()).or_insert({
-            let hdfs_fs = unsafe {
-                let hdfs_builder = hdfsNewBuilder();
-                match host_port {
-                    NNScheme::Local => {} //NO-OP
-                    NNScheme::Remote(ref hp) => {
-                        hdfsBuilderSetNameNode(hdfs_builder, to_raw!(&*hp.host));
-                        hdfsBuilderSetNameNodePort(hdfs_builder, hp.port);
-                    }
-                }
-                info!("Connecting to NameNode ({})", &host_port.to_string());
-                hdfsBuilderConnect(hdfs_builder)
-            };
-
-            if hdfs_fs.is_null() {
-                return Err(HdfsErr::CannotConnectToNameNode(host_port.to_string()));
-            }
-            info!("Connected to NameNode ({})", &host_port.to_string());
-            HdfsFs::new(host_port.to_string(), hdfs_fs)
-        });
-
-        Ok(entry.clone())
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use std::cell::RefCell;
-    use std::rc::Rc;
-
-    use super::HdfsFsCache;
-    use crate::HdfsErr;
-
-    use log::debug;
-
-    #[test]
-    fn test_hdfs_connection() -> Result<(), HdfsErr> {
-        let port = 9000;
-
-        let dfs_addr = format!("hdfs://localhost:{}", port);
-        let cache = Rc::new(RefCell::new(HdfsFsCache::new()));
-
-        let test_path = format!("hdfs://localhost:{}/users/test", port);
-        debug!("Trying to get {}", &test_path);
-        assert_eq!(dfs_addr, cache.borrow_mut().get(&test_path)?.url);
-
-        // create a file, check existence, and close
-        let fs = cache.borrow_mut().get(&test_path)?;
-        let test_file = "/test_file";
-        if fs.exist(test_file) {
-            fs.delete(test_file, true)?;
-        }
-        let created_file = match fs.create(test_file) {
-            Ok(f) => f,
-            Err(e) => panic!("Couldn't create a file {:?}", e),
-        };
-        assert!(created_file.close().is_ok());
-        assert!(fs.exist(test_file));
-
-        // open a file and close
-        let opened_file = fs.open(test_file)?;
-        assert!(opened_file.close().is_ok());
-
-        match fs.mkdir("/dir1") {
-            Ok(_) => debug!("/dir1 created"),
-            Err(_) => panic!("Couldn't create /dir1 directory"),
-        };
-
-        let file_info = fs.get_file_status("/dir1")?;
-
-        assert_eq!("/dir1", file_info.name());
-        assert!(!file_info.is_file());
-        assert!(file_info.is_directory());
-
-        let sub_dir_num = 3;
-        let mut expected_list = Vec::new();
-        for x in 0..sub_dir_num {
-            let filename = format!("/dir1/{}", x);
-            expected_list.push(format!("/dir1/{}", x));
-
-            match fs.mkdir(&filename) {
-                Ok(_) => debug!("{} created", filename),
-                Err(_) => panic!("Couldn't create {} directory", filename),
-            };
-        }
-
-        let mut list = fs.list_status("/dir1")?;
-        assert_eq!(sub_dir_num, list.len());
-
-        list.sort_by(|a, b| Ord::cmp(a.name(), b.name()));
-
-        for (expected, name) in expected_list
-            .iter()
-            .zip(list.iter().map(|status| status.name()))
-        {
-            assert_eq!(expected, name);
-        }
-        Ok(())
     }
 }
