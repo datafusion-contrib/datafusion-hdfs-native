@@ -1,5 +1,3 @@
-#!/bin/bash
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -17,10 +15,4 @@
 # specific language governing permissions and limitations
 # under the License.
 
-set -e
-
-. ./dev/build-set-env.sh
-
-# Use --progress=plain for detailed, non scrolled docker output
-
-docker build -t hdfs-native:$HN_VERSION -f dev/docker/hdfs-native.dockerfile .
+# TODO adapt https://github.com/wesm/arrow-io-test to install libhdfs3

@@ -23,6 +23,30 @@
 
 ## Setup
 
+1. Install libhdfs3
+
+You can either install it via [Conda](https://docs.conda.io/en/latest/) 
+
+```shell
+conda install -c conda-forge libhdfs3
+```
+
+or build it from source
+
+```shell
+
+# A specific version that could be compiled on osx
+git clone https://github.com/ClickHouse-Extras/libhdfs3.git
+cd libhdfs3
+git checkout 24b058c356794ef6cc2d31323dc9adf0386652ff
+
+# then build it
+mkdir build && cd build
+../bootstrap --prefix=/usr/local
+make
+make install
+```
+
 
 ## Configuration
 
