@@ -53,6 +53,13 @@ macro_rules! b2i {
     }};
 }
 
+#[macro_export]
+macro_rules! cr {
+    ($result:expr) => {{
+        $result.map_err(|e| e.into())
+    }};
+}
+
 /// Hdfs Utility
 pub struct HdfsUtil;
 

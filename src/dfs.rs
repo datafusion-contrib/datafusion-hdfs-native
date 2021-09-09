@@ -26,6 +26,7 @@ use libc::{c_char, c_int, c_short, c_void, time_t};
 use crate::err::HdfsErr;
 use crate::native::*;
 use crate::{b2i, from_raw, to_raw};
+use std::fmt::{Debug, Formatter};
 
 const O_RDONLY: c_int = 0;
 const O_WRONLY: c_int = 1;
@@ -271,6 +272,14 @@ pub struct HdfsFs<'a> {
     pub url: String,
     raw: *const hdfsFS,
     _marker: PhantomData<&'a ()>,
+}
+unsafe impl<'a> Send for HdfsFs<'a> {}
+unsafe impl<'a> Sync for HdfsFs<'a> {}
+
+impl<'a> Debug for HdfsFs<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hdfs").field("url", &self.url).finish()
+    }
 }
 
 impl<'a> HdfsFs<'a> {

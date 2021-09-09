@@ -20,6 +20,7 @@
 /// Rust APIs wrapping libhdfs3 API, providing better semantic and abstraction
 pub mod dfs;
 pub mod err;
+mod hdfs_store;
 /// libhdfs3 native binding APIs
 pub mod native;
 pub mod util;
@@ -29,7 +30,7 @@ pub use crate::err::HdfsErr;
 pub use crate::util::HdfsUtil;
 
 use crate::native::{
-    hdfsBuilderConnect, hdfsBuilderSetNameNode, hdfsBuilderSetNameNodePort, hdfsNewBuilder,
+    hdfsBuilderConnect, hdfsBuilderSetNameNode, hdfsBuilderSetNameNodePort, hdfsFS, hdfsNewBuilder,
 };
 use log::info;
 use std::collections::HashMap;
@@ -39,6 +40,7 @@ use url::Url;
 static LOCAL_FS_SCHEME: &str = "file";
 
 /// HdfsRegistry which stores seen HdfsFs instances.
+#[derive(Debug)]
 pub struct HdfsRegistry<'a> {
     fs: Arc<Mutex<HashMap<String, HdfsFs<'a>>>>,
 }
@@ -75,6 +77,10 @@ impl<'a> HdfsRegistry<'a> {
         }
     }
 
+    pub fn new_from(fs: Arc<Mutex<HashMap<String, HdfsFs<'a>>>>) -> HdfsRegistry<'a> {
+        HdfsRegistry { fs }
+    }
+
     fn get_namenode(&self, path: &str) -> Result<NNScheme, HdfsErr> {
         match Url::parse(path) {
             Ok(url) => {
@@ -93,13 +99,13 @@ impl<'a> HdfsRegistry<'a> {
         }
     }
 
-    pub fn get(&mut self, path: &str) -> Result<HdfsFs<'a>, HdfsErr> {
+    pub fn get(&self, path: &str) -> Result<HdfsFs<'a>, HdfsErr> {
         let host_port = self.get_namenode(path)?;
 
         let mut map = self.fs.lock().unwrap();
 
         let entry: &mut HdfsFs = map.entry(host_port.to_string()).or_insert({
-            let hdfs_fs = unsafe {
+            let hdfs_fs: *const hdfsFS = unsafe {
                 let hdfs_builder = hdfsNewBuilder();
                 match host_port {
                     NNScheme::Local => {} //NO-OP

@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use datafusion::error::DataFusionError;
+use std::io::ErrorKind;
 use thiserror::Error;
 
 /// Errors which can occur during accessing Hdfs cluster
@@ -34,4 +36,17 @@ pub enum HdfsErr {
     /// URL
     #[error("Invalid URL `{0}`")]
     InvalidUrl(String),
+}
+
+impl From<HdfsErr> for DataFusionError {
+    fn from(e: HdfsErr) -> DataFusionError {
+        let transformed_kind = match e {
+            HdfsErr::Unknown => ErrorKind::Other,
+            HdfsErr::FileNotFound(_) => ErrorKind::NotFound,
+            HdfsErr::FileAlreadyExists(_) => ErrorKind::AlreadyExists,
+            HdfsErr::CannotConnectToNameNode(_) => ErrorKind::ConnectionRefused,
+            HdfsErr::InvalidUrl(_) => ErrorKind::AddrNotAvailable,
+        };
+        DataFusionError::IoError(std::io::Error::new(transformed_kind, e))
+    }
 }
