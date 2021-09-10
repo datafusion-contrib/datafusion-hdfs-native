@@ -24,8 +24,9 @@ use std::sync::Arc;
 use libc::{c_char, c_int, c_short, c_void, time_t};
 
 use crate::err::HdfsErr;
-use crate::native::*;
+use crate::raw::*;
 use crate::{b2i, from_raw, to_raw};
+use std::cmp::min;
 use std::fmt::{Debug, Formatter};
 
 const O_RDONLY: c_int = 0;
@@ -133,13 +134,11 @@ impl Drop for BlockHosts {
     }
 }
 
-/// Safely deallocable hdfsFileInfo pointer
 struct HdfsFileInfoPtr {
     pub ptr: *const hdfsFileInfo,
     pub len: i32,
 }
 
-/// for safe deallocation
 impl<'a> Drop for HdfsFileInfoPtr {
     fn drop(&mut self) {
         unsafe { hdfsFreeFileInfo(self.ptr, self.len) };
@@ -157,16 +156,16 @@ impl HdfsFileInfoPtr {
 }
 
 /// Interface that represents the client side information for a file or directory.
-pub struct FileStatus<'a> {
+pub struct FileStatus<'fs> {
     raw: Arc<HdfsFileInfoPtr>,
     idx: u32,
-    _marker: PhantomData<&'a ()>,
+    _marker: PhantomData<&'fs HdfsFs>,
 }
 
-impl<'a> FileStatus<'a> {
+impl<'fs> FileStatus<'fs> {
     #[inline]
     /// create FileStatus from *const hdfsFileInfo
-    fn new(ptr: *const hdfsFileInfo) -> FileStatus<'a> {
+    fn new(ptr: *const hdfsFileInfo) -> FileStatus<'fs> {
         FileStatus {
             raw: Arc::new(HdfsFileInfoPtr::new(ptr)),
             idx: 0,
@@ -177,7 +176,7 @@ impl<'a> FileStatus<'a> {
     /// create FileStatus from *const hdfsFileInfo which points
     /// to dynamically allocated array.
     #[inline]
-    fn from_array(raw: Arc<HdfsFileInfoPtr>, idx: u32) -> FileStatus<'a> {
+    fn from_array(raw: Arc<HdfsFileInfoPtr>, idx: u32) -> FileStatus<'fs> {
         FileStatus {
             raw,
             idx,
@@ -192,7 +191,7 @@ impl<'a> FileStatus<'a> {
 
     /// Get the name of the file
     #[inline]
-    pub fn name(&self) -> &'a str {
+    pub fn name(&self) -> &'fs str {
         from_raw!((*self.ptr()).mName)
     }
 
@@ -216,13 +215,13 @@ impl<'a> FileStatus<'a> {
 
     /// Get the owner of the file
     #[inline]
-    pub fn owner(&self) -> &'a str {
+    pub fn owner(&self) -> &'fs str {
         from_raw!((*self.ptr()).mOwner)
     }
 
     /// Get the group associated with the file
     #[inline]
-    pub fn group(&self) -> &'a str {
+    pub fn group(&self) -> &'fs str {
         from_raw!((*self.ptr()).mGroup)
     }
 
@@ -268,29 +267,26 @@ impl<'a> FileStatus<'a> {
 ///
 /// It is basically thread safe because the native API for hdfsFs is thread-safe.
 #[derive(Clone)]
-pub struct HdfsFs<'a> {
+pub struct HdfsFs {
     pub url: String,
     raw: *const hdfsFS,
-    _marker: PhantomData<&'a ()>,
 }
-unsafe impl<'a> Send for HdfsFs<'a> {}
-unsafe impl<'a> Sync for HdfsFs<'a> {}
 
-impl<'a> Debug for HdfsFs<'a> {
+unsafe impl Send for HdfsFs {}
+
+unsafe impl Sync for HdfsFs {}
+
+impl Debug for HdfsFs {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Hdfs").field("url", &self.url).finish()
     }
 }
 
-impl<'a> HdfsFs<'a> {
+impl HdfsFs {
     /// create HdfsFs instance. Please use HdfsFsCache rather than using this API directly.
     #[inline]
-    pub(crate) fn new(url: String, raw: *const hdfsFS) -> HdfsFs<'a> {
-        HdfsFs {
-            url,
-            raw,
-            _marker: PhantomData,
-        }
+    pub(crate) fn new(url: String, raw: *const hdfsFS) -> HdfsFs {
+        HdfsFs { url, raw }
     }
 
     /// Get HDFS namenode url
@@ -348,7 +344,7 @@ impl<'a> HdfsFs<'a> {
     }
 
     pub fn create_with_params(
-        &'a self,
+        &self,
         path: &str,
         overwrite: bool,
         buf_size: i32,
@@ -513,7 +509,7 @@ impl<'a> HdfsFs<'a> {
         }
     }
 
-    pub fn list_status(&self, path: &str) -> Result<Vec<FileStatus<'_>>, HdfsErr> {
+    pub fn list_status(&self, path: &str) -> Result<Vec<FileStatus>, HdfsErr> {
         let mut entry_num: c_int = 0;
 
         let ptr = unsafe { hdfsListDirectory(self.raw, to_raw!(path), &mut entry_num) };
@@ -532,7 +528,7 @@ impl<'a> HdfsFs<'a> {
         Ok(list)
     }
 
-    pub fn get_file_status(&self, path: &str) -> Result<FileStatus<'_>, HdfsErr> {
+    pub fn get_file_status(&self, path: &str) -> Result<FileStatus, HdfsErr> {
         let ptr = unsafe { hdfsGetPathInfo(self.raw, to_raw!(path)) };
 
         if ptr.is_null() {
@@ -545,12 +541,40 @@ impl<'a> HdfsFs<'a> {
 
 /// open hdfs file
 pub struct HdfsFile<'a> {
-    fs: &'a HdfsFs<'a>,
+    fs: &'a HdfsFs,
     path: String,
     file: *const hdfsFile,
 }
 
+#[derive(Clone)]
+pub struct RawHdfsFileWrapper {
+    pub path: String,
+    pub file: *const hdfsFile,
+}
+
+impl<'a> From<&HdfsFile<'a>> for RawHdfsFileWrapper {
+    fn from(file: &HdfsFile<'a>) -> Self {
+        RawHdfsFileWrapper {
+            path: file.path.clone(),
+            file: file.file,
+        }
+    }
+}
+
+unsafe impl Send for RawHdfsFileWrapper {}
+
+unsafe impl Sync for RawHdfsFileWrapper {}
+
 impl<'a> HdfsFile<'a> {
+    pub fn from_raw(rw: &RawHdfsFileWrapper, fs: &'a HdfsFs) -> HdfsFile<'a> {
+        let path = rw.path.clone();
+        HdfsFile {
+            fs,
+            path,
+            file: rw.file,
+        }
+    }
+
     pub fn available(&self) -> Result<bool, HdfsErr> {
         if unsafe { hdfsAvailable(self.fs.raw, self.file) } == 0 {
             Ok(true)
@@ -639,6 +663,50 @@ impl<'a> HdfsFile<'a> {
                 pos as tOffset,
                 buf.as_ptr() as *mut c_void,
                 buf.len() as tSize,
+            )
+        };
+
+        if read_len > 0 {
+            Ok(read_len as i32)
+        } else {
+            Err(HdfsErr::Unknown)
+        }
+    }
+
+    /// Read data from an open file.
+    pub fn read_length(&self, buf: &mut [u8], length: usize) -> Result<i32, HdfsErr> {
+        let required_len = min(length, buf.len());
+        let read_len = unsafe {
+            hdfsRead(
+                self.fs.raw,
+                self.file,
+                buf.as_ptr() as *mut c_void,
+                required_len as tSize,
+            )
+        };
+
+        if read_len > 0 {
+            Ok(read_len as i32)
+        } else {
+            Err(HdfsErr::Unknown)
+        }
+    }
+
+    /// Positional read of data from an open file.
+    pub fn read_with_pos_length(
+        &self,
+        pos: i64,
+        buf: &mut [u8],
+        length: usize,
+    ) -> Result<i32, HdfsErr> {
+        let required_len = min(length, buf.len());
+        let read_len = unsafe {
+            hdfsPread(
+                self.fs.raw,
+                self.file,
+                pos as tOffset,
+                buf.as_ptr() as *mut c_void,
+                required_len as tSize,
             )
         };
 

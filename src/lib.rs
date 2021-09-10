@@ -21,15 +21,15 @@
 pub mod dfs;
 pub mod err;
 mod hdfs_store;
-/// libhdfs3 native binding APIs
-pub mod native;
+/// libhdfs3 raw binding APIs
+pub mod raw;
 pub mod util;
 
 pub use crate::dfs::*;
 pub use crate::err::HdfsErr;
 pub use crate::util::HdfsUtil;
 
-use crate::native::{
+use crate::raw::{
     hdfsBuilderConnect, hdfsBuilderSetNameNode, hdfsBuilderSetNameNodePort, hdfsFS, hdfsNewBuilder,
 };
 use log::info;
@@ -41,11 +41,11 @@ static LOCAL_FS_SCHEME: &str = "file";
 
 /// HdfsRegistry which stores seen HdfsFs instances.
 #[derive(Debug)]
-pub struct HdfsRegistry<'a> {
-    fs: Arc<Mutex<HashMap<String, HdfsFs<'a>>>>,
+pub struct HdfsRegistry {
+    all_fs: Arc<Mutex<HashMap<String, HdfsFs>>>,
 }
 
-impl<'a> Default for HdfsRegistry<'a> {
+impl Default for HdfsRegistry {
     fn default() -> Self {
         HdfsRegistry::new()
     }
@@ -70,15 +70,15 @@ impl ToString for NNScheme {
     }
 }
 
-impl<'a> HdfsRegistry<'a> {
-    pub fn new() -> HdfsRegistry<'a> {
+impl HdfsRegistry {
+    pub fn new() -> HdfsRegistry {
         HdfsRegistry {
-            fs: Arc::new(Mutex::new(HashMap::new())),
+            all_fs: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn new_from(fs: Arc<Mutex<HashMap<String, HdfsFs<'a>>>>) -> HdfsRegistry<'a> {
-        HdfsRegistry { fs }
+    pub fn new_from(fs: Arc<Mutex<HashMap<String, HdfsFs>>>) -> HdfsRegistry {
+        HdfsRegistry { all_fs: fs }
     }
 
     fn get_namenode(&self, path: &str) -> Result<NNScheme, HdfsErr> {
@@ -99,10 +99,10 @@ impl<'a> HdfsRegistry<'a> {
         }
     }
 
-    pub fn get(&self, path: &str) -> Result<HdfsFs<'a>, HdfsErr> {
+    pub fn get(&self, path: &str) -> Result<HdfsFs, HdfsErr> {
         let host_port = self.get_namenode(path)?;
 
-        let mut map = self.fs.lock().unwrap();
+        let mut map = self.all_fs.lock().unwrap();
 
         let entry: &mut HdfsFs = map.entry(host_port.to_string()).or_insert({
             let hdfs_fs: *const hdfsFS = unsafe {

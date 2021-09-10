@@ -38,15 +38,26 @@ pub enum HdfsErr {
     InvalidUrl(String),
 }
 
+fn get_error_kind(e: &HdfsErr) -> ErrorKind {
+    match e {
+        HdfsErr::Unknown => ErrorKind::Other,
+        HdfsErr::FileNotFound(_) => ErrorKind::NotFound,
+        HdfsErr::FileAlreadyExists(_) => ErrorKind::AlreadyExists,
+        HdfsErr::CannotConnectToNameNode(_) => ErrorKind::ConnectionRefused,
+        HdfsErr::InvalidUrl(_) => ErrorKind::AddrNotAvailable,
+    }
+}
+
 impl From<HdfsErr> for DataFusionError {
     fn from(e: HdfsErr) -> DataFusionError {
-        let transformed_kind = match e {
-            HdfsErr::Unknown => ErrorKind::Other,
-            HdfsErr::FileNotFound(_) => ErrorKind::NotFound,
-            HdfsErr::FileAlreadyExists(_) => ErrorKind::AlreadyExists,
-            HdfsErr::CannotConnectToNameNode(_) => ErrorKind::ConnectionRefused,
-            HdfsErr::InvalidUrl(_) => ErrorKind::AddrNotAvailable,
-        };
+        let transformed_kind = get_error_kind(&e);
         DataFusionError::IoError(std::io::Error::new(transformed_kind, e))
+    }
+}
+
+impl From<HdfsErr> for std::io::Error {
+    fn from(e: HdfsErr) -> std::io::Error {
+        let transformed_kind = get_error_kind(&e);
+        std::io::Error::new(transformed_kind, e)
     }
 }
