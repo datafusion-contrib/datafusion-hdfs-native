@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use futures::{AsyncRead, Stream};
+use futures::AsyncRead;
 use std::sync::{Arc, Mutex};
 
 use crate::{cr, FileStatus, HdfsFs, HdfsRegistry};
@@ -8,12 +8,10 @@ use datafusion::datasource::object_store::{
     FileMeta, FileMetaStream, ListEntry, ListEntryStream, ObjectReader, ObjectStore,
 };
 use datafusion::error::{DataFusionError, Result};
-use futures::stream::{self, StreamExt};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
 use std::io::ErrorKind;
-use std::pin::Pin;
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task,
@@ -56,6 +54,10 @@ fn list_dir_sync(
             .blocking_send(Ok(ListEntry::from(status)))
             .map_err(|e| DataFusionError::Execution(e.to_string()))?;
     }
+    Ok(())
+}
+
+fn list_i<'a>(fs: Arc<Mutex<HashMap<String, HdfsFs<'a>>>>) -> Result<()> {
     Ok(())
 }
 
@@ -104,8 +106,11 @@ impl<'a> ObjectStore for HdfsStore<'a> {
         let prefix = prefix.to_owned();
         let store = self.fs_registry.fs.clone();
         task::spawn_blocking(move || {
-            if let Err(e) = list_dir_sync(store, &prefix, response_tx) {
-                println!("List status thread terminated due to error {:?}", e)
+            // if let Err(e) = list_dir_sync(store, &prefix, response_tx) {
+            //     println!("List status thread terminated due to error {:?}", e)
+            // }
+            if let Err(e) = list_i(store) {
+                println!("{:?}", e)
             }
         });
         Ok(Box::pin(ReceiverStream::new(response_rx)))

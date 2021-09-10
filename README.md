@@ -50,4 +50,7 @@ make install
 
 ## Configuration
 
-
+```shell
+# client conf to use, env LIBHDFS3_CONF or hdfs-client.xml in working directory
+export LIBHDFS3_CONF=/path/to/libhdfs3-hdfs-client.xml
+```
