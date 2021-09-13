@@ -31,11 +31,10 @@ libc = "0.2"
 log = "0.4"
 url = "2"
 thiserror = "1"
-const-cstr = "0.3.0"
 
 async-trait = "0.1.41"
 chrono = "0.4"
-datafusion = { git = "https://github.com/yjshen/arrow-datafusion.git", branch = "os_api" }
+datafusion = { git = "https://github.com/apache/arrow-datafusion.git", branch = "master" }
 futures = "0.3"
 tokio = { version = "1.0", features = ["macros", "rt", "rt-multi-thread", "sync"] }
 tokio-stream = "0.1"

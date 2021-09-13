@@ -140,7 +140,7 @@ mod test {
         let port = 9000;
 
         let dfs_addr = format!("hdfs://localhost:{}", port);
-        let mut fs_registry = HdfsRegistry::new();
+        let fs_registry = HdfsRegistry::new();
 
         let test_path = format!("hdfs://localhost:{}/users/test", port);
         debug!("Trying to get {}", &test_path);

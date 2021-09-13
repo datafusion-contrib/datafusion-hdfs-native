@@ -168,12 +168,9 @@ impl AsyncRead for HdfsAsyncRead {
             match fs {
                 Ok(fs) => {
                     let file = HdfsFile::from_raw(&file_wrapper, &fs);
-                    let vec_len = file
-                        // .read_with_pos_length(start as i64, vec.as_mut_slice(), length)
-                        .read_with_pos_length(start as i64, &mut *vec, length)
+                    file.read_with_pos_length(start as i64, &mut *vec, length)
                         .map_err(std::io::Error::from)
-                        .map(|s| (vec, s as usize));
-                    vec_len
+                        .map(|s| (vec, s as usize))
                 }
                 Err(e) => Err(std::io::Error::from(e)),
             }
@@ -181,21 +178,15 @@ impl AsyncRead for HdfsAsyncRead {
 
         match Pin::new(&mut read_sync).poll(cx) {
             Poll::Ready(r) => match r {
-                Ok(vl_r) => {
-                    match vl_r {
-                        Ok(vl) => {
-                            match vl.0.as_slice().read(buf) {
-                                Ok(_) => {
-                                    Poll::Ready(Ok(vl.1))
-                                }
-                                Err(e) => {Poll::Ready(Err(e))},
-                            }
-                        }
-                        Err(e) => Poll::Ready(Err(e))
-                    }
-                }
-                Err(e) => Poll::Ready(Err(std::io::Error::from(e)))
-            }
+                Ok(vl_r) => match vl_r {
+                    Ok(vl) => match vl.0.as_slice().read(buf) {
+                        Ok(_) => Poll::Ready(Ok(vl.1)),
+                        Err(e) => Poll::Ready(Err(e)),
+                    },
+                    Err(e) => Poll::Ready(Err(e)),
+                },
+                Err(e) => Poll::Ready(Err(std::io::Error::from(e))),
+            },
             Poll::Pending => Poll::Pending,
         }
     }
@@ -255,6 +246,6 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let hdfs_store = HdfsStore::new();
+        let _hdfs_store = HdfsStore::new();
     }
 }
