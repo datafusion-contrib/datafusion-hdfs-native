@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use futures::AsyncRead;
+use futures::{AsyncRead, Future};
 use std::sync::{Arc, Mutex};
 
 use crate::{FileStatus, HdfsErr, HdfsFile, HdfsFs, HdfsRegistry, RawHdfsFileWrapper};
@@ -11,10 +11,9 @@ use datafusion::error::{DataFusionError, Result};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::io::{Error, ErrorKind};
+use std::io::{ErrorKind, Read};
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use tokio::macros::support::Future;
 use tokio::{
     sync::mpsc::{channel, Receiver, Sender},
     task,
@@ -28,6 +27,9 @@ pub struct HdfsStore {
 }
 
 impl HdfsStore {
+    #[allow(dead_code)]
+    // We will finally move HdfsStore into its own crate when Hdfs-native is mature,
+    // therefore ignore the warning here.
     pub fn new() -> Result<Self> {
         Ok(HdfsStore {
             fs_registry: HdfsRegistry::new(),
@@ -157,18 +159,21 @@ impl AsyncRead for HdfsAsyncRead {
         let file_wrapper = self.file.clone();
         let start = self.start as i64;
         let length = self.length;
+        let buf_len = buf.len();
 
         let mut read_sync = task::spawn_blocking(move || {
             let store = HdfsStore::new_from(all_fs);
             let fs = store.get_fs(&*path);
+            let mut vec = vec![0u8; buf_len];
             match fs {
                 Ok(fs) => {
                     let file = HdfsFile::from_raw(&file_wrapper, &fs);
-                    let effective_length = file
-                        .read_with_pos_length(start as i64, buf, length)
+                    let vec_len = file
+                        // .read_with_pos_length(start as i64, vec.as_mut_slice(), length)
+                        .read_with_pos_length(start as i64, &mut *vec, length)
                         .map_err(std::io::Error::from)
-                        .map(|s| s as usize);
-                    effective_length
+                        .map(|s| (vec, s as usize));
+                    vec_len
                 }
                 Err(e) => Err(std::io::Error::from(e)),
             }
@@ -176,9 +181,21 @@ impl AsyncRead for HdfsAsyncRead {
 
         match Pin::new(&mut read_sync).poll(cx) {
             Poll::Ready(r) => match r {
-                Ok(result) => Poll::Ready(result),
-                Err(e) => Poll::Ready(Err(Error::from(e))),
-            },
+                Ok(vl_r) => {
+                    match vl_r {
+                        Ok(vl) => {
+                            match vl.0.as_slice().read(buf) {
+                                Ok(_) => {
+                                    Poll::Ready(Ok(vl.1))
+                                }
+                                Err(e) => {Poll::Ready(Err(e))},
+                            }
+                        }
+                        Err(e) => Poll::Ready(Err(e))
+                    }
+                }
+                Err(e) => Poll::Ready(Err(std::io::Error::from(e)))
+            }
             Poll::Pending => Poll::Pending,
         }
     }
