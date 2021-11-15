@@ -17,11 +17,11 @@
   under the License.
 -->
 
-# HDFS-Native
+# DataFusion-hdfs-native
 
-> A rust wrapper over libhdfs3 developed by Apache HAWQ
+Connecting DataFusion to HDFS through Native HDFS client (libhdfs3).
 
-## Setup
+## Setup libhdfs3
 
 1. Install libhdfs3
 
@@ -35,7 +35,7 @@ or build it from source
 
 ```shell
 
-# A specific version that could be compiled on osx
+# A specific version that could be compiled on osx for HDFS of 2.6.x version
 git clone https://github.com/ClickHouse-Extras/libhdfs3.git
 cd libhdfs3
 git checkout 24b058c356794ef6cc2d31323dc9adf0386652ff
